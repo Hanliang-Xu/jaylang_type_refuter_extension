@@ -52,13 +52,12 @@ function runCeval(uri: string): Promise<void> {
 
 			const msg = (stdout || '') + (stderr || '');
 
-			connection.console.log(`ceval raw output: ${msg}`);
-
 			if (err) {
 				connection.window.showErrorMessage(`ceval failed: ${msg || err.message}`);
 			} else {
 				connection.window.showInformationMessage(`ceval output: ${msg}`);
 			}
+			
 			resolve();
 		});
 	});

@@ -1,0 +1,8 @@
+(tests
+ (names test_parse_bluejay)
+ (modules test_parse_bluejay)
+ (libraries
+  core
+  alcotest
+  lang
+  yojson))
