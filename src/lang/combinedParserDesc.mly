@@ -156,6 +156,7 @@ the language and which lines are erased.
 
 %start <statement list> prog
 %start <statement list option> delim_expr
+%start <(statement * (Lexing.position * Lexing.position)) list> prog_with_positions
 
 %%
 
@@ -185,6 +186,18 @@ delim_expr:
 statement_list:
   | statement { [ $1 ] }
   | statement statement_list { $1 :: $2 }
+
+prog_with_positions:
+  | statement_list_with_positions EOF { $1 }
+  ;
+
+statement_list_with_positions:
+  | statement_with_position { [ $1 ] }
+  | statement_with_position statement_list_with_positions { $1 :: $2 }
+
+statement_with_position:
+  | LET l_ident EQUALS expr
+      { ((SUntyped { var = $2 ; defn = $4 } : statement), ($startpos, $endpos)) }
 
 statement:
   | LET l_ident EQUALS expr

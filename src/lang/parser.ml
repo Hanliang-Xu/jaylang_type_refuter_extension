@@ -8,6 +8,8 @@ module type PARSING_DESC = sig
 
   val prog : (Lexing.lexbuf -> token) -> Lexing.lexbuf -> statement list
 
+  val prog_with_positions : (Lexing.lexbuf -> token) -> Lexing.lexbuf -> (statement * (Lexing.position * Lexing.position)) list
+  
   val token : Lexing.lexbuf -> token
 end
 
@@ -33,6 +35,14 @@ module Make(ParsingDesc : PARSING_DESC) = struct
 
   let parse_file (filename : string) : ParsingDesc.statement list =
     parse_single_pgm_string (Core.In_channel.read_all filename)
+  
+  let parse_single_pgm_string_with_positions
+    (expr_str : string)
+    : (ParsingDesc.statement * (Lexing.position * Lexing.position)) list =
+    let buf = Lexing.from_string expr_str in
+    handle_parse_error buf @@ fun () ->
+    ParsingDesc.prog_with_positions ParsingDesc.token buf
+
 end
 
 module Bluejay = Make(struct
@@ -81,3 +91,37 @@ let parse_program_from_argv =
   match source_file with 
   | Some filename -> parse_program_from_file filename
   | None -> raise @@ Invalid_argument "No filename provided in argv"
+
+let parse_with_positions (src : string) : (Ast.Bluejay.statement * (Lexing.position * Lexing.position)) list =
+  (* Parse and capture positions *)
+  Bluejay.parse_single_pgm_string_with_positions src
+
+let parse_program_to_json (src : string) : string =
+  let kind_of_stmt : type a. a Ast.Expr.statement -> string = function
+    | Ast.Expr.SUntyped _ -> "untyped"
+    | Ast.Expr.STyped _ -> "typed"
+    | Ast.Expr.SFun _ -> "fun"
+    | Ast.Expr.SFunRec _ -> "funrec"
+  in
+  let pos_to_json (p : Lexing.position) : Yojson.Safe.t =
+    `Assoc [
+      ("line", `Int p.pos_lnum);
+      ("col", `Int (p.pos_cnum - p.pos_bol));
+      ("offset", `Int p.pos_cnum);
+    ]
+  in
+  let to_json (i : int) ((s : Ast.Bluejay.statement), (start_pos, end_pos)) : Yojson.Safe.t =
+    let ids =
+      Ast.Expr.ids_of_statement s
+      |> List.map (fun id -> `String (Ast.Ident.to_string id))
+    in
+    `Assoc [
+      ("index", `Int i);
+      ("kind", `String (kind_of_stmt s));
+      ("ids", `List ids);
+      ("start", pos_to_json start_pos);
+      ("end", pos_to_json end_pos);
+    ]
+  in
+  let pgm = Bluejay.parse_single_pgm_string_with_positions src in
+  Yojson.Safe.to_string (`List (List.mapi to_json pgm))
