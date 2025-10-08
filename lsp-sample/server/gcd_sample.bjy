@@ -1,0 +1,23 @@
+let g (x : int) : int = x * x + 1
+
+let t = mu t a. a
+
+let f (type a) (x : t a) : t a =
+  x
+
+let rec g (x : int) : { int | h } =
+  x * x + 1
+
+
+let rec f (x : int) : t () =
+  x
+
+let t = sig
+  val t : type
+  val a : type
+  val r : sig val a : a val b : t end
+  val s : a (* this should have the type of a, which is unaffected by `r.a` *)
+end
+
+let f (dependent x : t) : x.a =
+  x.s

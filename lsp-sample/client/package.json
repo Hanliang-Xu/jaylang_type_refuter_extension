@@ -19,5 +19,6 @@
 	"devDependencies": {
 		"@types/vscode": "^1.100.0",
 		"@vscode/test-electron": "^2.3.9"
-	}
+	},
+	"activationEvents": ["onLanguage:bjy"]
 }
