@@ -20,16 +20,11 @@ let pos_of k f =
       (i "line", i "col")
   | v -> failwith (Yojson.Safe.to_string v)
 
-let expect_stmt ?start ?end_ ~index ~kind ~ids f =
+let expect_stmt ?start ?end_ ~index ~ids f =
   let open Alcotest in
-  (* existing checks *)
   check int "index" index
     (match field "index" f with
     | `Int i -> i
-    | v -> failwith (Yojson.Safe.to_string v)) ;
-  check string "kind" kind
-    (match field "kind" f with
-    | `String s -> s
     | v -> failwith (Yojson.Safe.to_string v)) ;
   check (list string) "ids" ids
     (match field "ids" f with
@@ -51,16 +46,16 @@ let expect_stmt ?start ?end_ ~index ~kind ~ids f =
 let test_case_simple () =
   match decode "let x = 1\n" with
   | `List [a] ->
-      expect_stmt ~index:0 ~kind:"untyped" ~ids:["x"] ~start:(1,0) ~end_:(1,9) (stmt_fields a)
+      expect_stmt ~index:0 ~ids:["x"] ~start:(1,0) ~end_:(1,9) (stmt_fields a)
   | _ -> Alcotest.fail "unexpected JSON"
 
 let test_case_multi () =
   let src = "let x = 1 let y = 2\nlet z = 3" in
   match decode src with
   | `List [a; b; c] ->
-      expect_stmt ~index:0 ~kind:"untyped" ~ids:["x"] ~start:(1,0)  (stmt_fields a);
-      expect_stmt ~index:1 ~kind:"untyped" ~ids:["y"] ~start:(1,10) (stmt_fields b);
-      expect_stmt ~index:2 ~kind:"untyped" ~ids:["z"] ~start:(2,0)  (stmt_fields c)
+      expect_stmt ~index:0 ~ids:["x"] ~start:(1,0)  (stmt_fields a);
+      expect_stmt ~index:1 ~ids:["y"] ~start:(1,10) (stmt_fields b);
+      expect_stmt ~index:2 ~ids:["z"] ~start:(2,0)  (stmt_fields c)
   | _ -> Alcotest.fail "unexpected JSON"
 
 let () =

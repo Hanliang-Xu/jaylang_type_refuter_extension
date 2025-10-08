@@ -46,3 +46,8 @@
  (promote
   (until-clean)
   (into "../..")))
+
+(executable
+ (name json_parser)
+ (modules json_parser)
+ (libraries core cmdliner lang))

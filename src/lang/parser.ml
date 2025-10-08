@@ -92,17 +92,7 @@ let parse_program_from_argv =
   | Some filename -> parse_program_from_file filename
   | None -> raise @@ Invalid_argument "No filename provided in argv"
 
-let parse_with_positions (src : string) : (Ast.Bluejay.statement * (Lexing.position * Lexing.position)) list =
-  (* Parse and capture positions *)
-  Bluejay.parse_single_pgm_string_with_positions src
-
 let parse_program_to_json (src : string) : string =
-  let kind_of_stmt : type a. a Ast.Expr.statement -> string = function
-    | Ast.Expr.SUntyped _ -> "untyped"
-    | Ast.Expr.STyped _ -> "typed"
-    | Ast.Expr.SFun _ -> "fun"
-    | Ast.Expr.SFunRec _ -> "funrec"
-  in
   let pos_to_json (p : Lexing.position) : Yojson.Safe.t =
     `Assoc [
       ("line", `Int p.pos_lnum);
@@ -117,7 +107,6 @@ let parse_program_to_json (src : string) : string =
     in
     `Assoc [
       ("index", `Int i);
-      ("kind", `String (kind_of_stmt s));
       ("ids", `List ids);
       ("start", pos_to_json start_pos);
       ("end", pos_to_json end_pos);

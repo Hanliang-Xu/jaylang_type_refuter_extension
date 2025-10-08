@@ -176,6 +176,10 @@ prog:
   | statement_list EOF { $1 }
   ;
 
+prog_with_positions:
+  | statement_list_with_positions EOF { $1 }
+  ;
+
 delim_expr:
   | EOF
       { None }
@@ -187,17 +191,9 @@ statement_list:
   | statement { [ $1 ] }
   | statement statement_list { $1 :: $2 }
 
-prog_with_positions:
-  | statement_list_with_positions EOF { $1 }
-  ;
-
 statement_list_with_positions:
   | statement_with_position { [ $1 ] }
   | statement_with_position statement_list_with_positions { $1 :: $2 }
-
-statement_with_position:
-  | LET l_ident EQUALS expr
-      { ((SUntyped { var = $2 ; defn = $4 } : statement), ($startpos, $endpos)) }
 
 statement:
   | LET l_ident EQUALS expr
@@ -225,6 +221,33 @@ statement:
       { SFunRec $1 : statement }
   | letfun
       { SFun $1 : statement }
+  (*! endscope !*)
+
+statement_with_position:
+  | LET l_ident EQUALS expr
+      { ((SUntyped { var = $2 ; defn = $4 } : statement), ($startpos, $endpos)) }
+  (*! scope desugared !*)
+  | LET typed_binding NO_CHECK? NO_WRAP? EQUALS expr
+      { ((STyped { typed_var = { var = fst $2 ; tau = snd $2 };
+                 defn = $6;
+                 typed_binding_opts =
+                    TBDesugared { do_wrap = Option.is_none $3;
+                                  do_check = Option.is_none $4;
+                                }
+               } : statement), ($startpos, $endpos))
+      }
+  (*! endscope !*)
+  (*! scope bluejay !*)
+  | LET typed_binding EQUALS expr
+      { ((STyped { typed_var = { var = fst $2 ; tau = snd $2 };
+                 defn = $4;
+                 typed_binding_opts = TBBluejay
+               } : statement), ($startpos, $endpos))
+      }
+  | letfun_rec
+      { ((SFunRec $1 : statement), ($startpos, $endpos)) }
+  | letfun
+      { ((SFun $1 : statement), ($startpos, $endpos)) }
   (*! endscope !*)
 
 /* **** Expressions **** */
