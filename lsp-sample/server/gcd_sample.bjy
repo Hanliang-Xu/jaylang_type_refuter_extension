@@ -2,7 +2,7 @@ let g (x : int) : int = x * x + 1
 
 let t = mu t a. a
 
-let f (type a) (x : t a) : t a =
+let f (type a) (x : t a) : t a = 
   x
 
 let rec g (x : int) : { int | h } =
