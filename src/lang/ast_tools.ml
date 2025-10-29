@@ -130,17 +130,39 @@ module Utils = struct
     fun pgm -> EModule pgm
 end
 
+module Type_annot = struct
+  type 'a t = 
+    | Untyped
+    | Typed of { do_check : bool ; tau : 'a Expr.t }
+  
+  let map f = function
+    | Untyped -> Untyped
+    | Typed { do_check ; tau } -> Typed { do_check ; tau = f tau }
+
+  let without_check = function
+    | Untyped -> Untyped
+    | Typed r -> Typed { r with do_check = false }
+
+  let type_opt = function
+    | Untyped -> None
+    | Typed { tau ; _ } -> Some tau
+
+  let type_exn = function
+    | Untyped -> failwith "No type to get from type annotation"
+    | Typed { tau ; _ } -> tau
+end
+
 module Function_components = struct
   type 'a t =
     { func_id : Ident.t
-    ; tau_opt : 'a Expr.t option
+    ; tau     : 'a Type_annot.t
     ; params  : Ident.t list
     ; defn    : 'a Expr.t
     } 
 
   let map (x : 'a t) ~(f : 'a Expr.t -> 'b Expr.t) : 'b t =
     { func_id = x.func_id
-    ; tau_opt = Option.map x.tau_opt ~f
+    ; tau     = Type_annot.map f x.tau
     ; params  = x.params
     ; defn    = f x.defn
     }
@@ -164,10 +186,10 @@ module Funsig = struct
   let to_components (type a) (fsig : a t) : a Function_components.t =
     match fsig with
     | FUntyped { func_id ; params ; defn } ->
-      { func_id ; tau_opt = None ; params ; defn }
-    | FTyped { type_vars ; func_id ; params ; ret_type ; defn } ->
+      { func_id ; tau = Untyped ; params ; defn }
+    | FTyped { type_vars ; func_id ; params ; ret_type ; defn ; do_check } ->
       { func_id ; defn ; params = type_vars @ List.map params ~f:Param.to_id
-      ; tau_opt = Some (
+      ; tau = Typed { do_check ; tau =
         (* Create dependent parameters out of the type variables *)
         let tvar_params : Bluejay.param list =
           List.map type_vars ~f:(fun var -> Expr.TVarDep { var ; tau = EType })
@@ -177,6 +199,6 @@ module Funsig = struct
           match tvar with
           | TVar { var = _ ; tau } -> Expr.ETypeFun { domain = tau ; codomain ; dep = `No ; det = false }
           | TVarDep { var ; tau } -> ETypeFun { domain = tau ; codomain ; dep = `Binding var ; det = false }
-        )
-      ) }
+        ) }
+      }
 end

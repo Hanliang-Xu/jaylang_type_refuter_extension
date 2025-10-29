@@ -44,7 +44,7 @@ let to_string (type a) (x : a t) : string =
   | Type_mismatch (_, s)     -> Format.sprintf "Type mismatch:\n  %s" s
   | Unbound_variable (_, id) -> Format.sprintf "Unbound variable:\n  %s" (Lang.Ast.Ident.to_string id)
   | Exhausted_full_tree      -> "Exhausted"
-  | Exhausted_pruned_tree    -> "Exhausted pruned true"
+  | Exhausted_pruned_tree    -> "Exhausted pruned tree"
   | Unknown                  -> "Unknown due to solver timeout"
   | Timeout                  -> "Timeout"
   | Reached_max_step         -> "Reached max step"

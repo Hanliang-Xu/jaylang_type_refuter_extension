@@ -205,7 +205,7 @@ statement:
   | LET typed_binding EQUALS expr
       { STyped { typed_var = { var = fst $2 ; tau = snd $2 };
                  defn = $4;
-                 typed_binding_opts = TBBluejay
+                 typed_binding_opts = TBBluejay { do_check = true }
                } : statement
       }
   | letfun_rec
@@ -241,7 +241,7 @@ expr:
       { ELetTyped { typed_var = { var = fst $2 ; tau = snd $2 };
                     defn = $4;
                     body = $6;
-                    typed_binding_opts = TBBluejay
+                    typed_binding_opts = TBBluejay { do_check = true }
                   } : t
       }
   (*! endscope !*)
@@ -389,9 +389,9 @@ fun_sig:
   | ident param_list EQUALS expr
       { FUntyped { func_id = $1 ; params = $2 ; defn = $4 } : funsig }
   | ident param_list_with_type COLON expr EQUALS expr
-      { FTyped { type_vars = [] ; func_id = $1 ; params = $2 ; ret_type = $4 ; defn = $6 } : funsig }
+      { FTyped { type_vars = [] ; func_id = $1 ; params = $2 ; ret_type = $4 ; defn = $6 ; do_check = true } : funsig }
   | ident OPEN_PAREN TYPE param_list CLOSE_PAREN param_list_with_type COLON expr EQUALS expr 
-      { FTyped { type_vars = $4 ; func_id = $1 ; params = $6 ; ret_type = $8 ; defn = $10 } : funsig }
+      { FTyped { type_vars = $4 ; func_id = $1 ; params = $6 ; ret_type = $8 ; defn = $10 ; do_check = true } : funsig }
 
 (*! endscope !*)
 

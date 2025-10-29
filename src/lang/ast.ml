@@ -308,7 +308,7 @@ module Expr = struct
 
     (* the options for let expressions *)
     and _ typed_binding_opts =
-      | TBBluejay : 'a bluejay_only typed_binding_opts
+      | TBBluejay : { do_check : bool } -> 'a bluejay_only typed_binding_opts
       | TBDesugared : { do_wrap : bool; do_check : bool } -> 'a desugared_only typed_binding_opts
 
     (* the let-function signatures *)
@@ -317,7 +317,8 @@ module Expr = struct
       | FTyped : ('a, 'a param list) typed_fun -> 'a bluejay_only funsig
 
     (* the common parts of typed let-function signature. Note type_vars is empty for non polymorphic functions *)
-    and ('a, 'p) typed_fun = { type_vars : Ident.t list ; func_id : Ident.t ; params : 'p ; ret_type : 'a t ; defn : 'a t }
+    and ('a, 'p) typed_fun =
+      { type_vars : Ident.t list ; func_id : Ident.t ; params : 'p ; ret_type : 'a t ; defn : 'a t ; do_check : bool }
 
     (* a variable with its type, where the type is an expression *)
     and 'a typed_var = { var : Ident.t ; tau : 'a t }
@@ -557,7 +558,7 @@ module Expr = struct
       and compare_typed_binding_opts : type a. a typed_binding_opts -> a typed_binding_opts -> int =
         fun o1 o2 ->
           match o1, o2 with
-          | TBBluejay, TBBluejay -> 0
+          | TBBluejay { do_check = b1 }, TBBluejay { do_check = b2 } -> Bool.compare b1 b2
           | TBDesugared { do_check = c1; do_wrap = w1 },
             TBDesugared { do_check = c2; do_wrap = w2 } ->
             let- () = Bool.compare c1 c2 in
@@ -899,13 +900,7 @@ module Expr = struct
                Format.sprintf "`%s of %s" s (ppp_gt tau)))
       | ELetTyped { typed_var ; defn ; body ; typed_binding_opts } ->
         let {var = Ident x; tau} = typed_var in
-        let opts_string =
-          match typed_binding_opts with
-          | TBBluejay -> ""
-          | TBDesugared { do_check ; do_wrap } ->
-            (if do_check then "" else "#nocheck ") ^
-            (if do_wrap then "" else "#nowrap ")
-        in
+        let opts_string = binding_opts_to_string typed_binding_opts in
         Format.sprintf "let (%s : %s) %s = %s in %s"
           x (to_string tau) opts_string  (to_string defn) (ppp_gt body)
       | ETypeSingle -> "singlet"
@@ -942,19 +937,20 @@ module Expr = struct
               Format.sprintf "((`%s of %s) -> %s)"
                 s (ppp_ge tau1) (ppp_ge tau2))
 
+    and binding_opts_to_string : type a. a typed_binding_opts -> string = function
+      | TBBluejay { do_check = true } -> ""
+      | TBBluejay { do_check = false } -> "#nocheck"
+      | TBDesugared { do_check ; do_wrap } ->
+        (if do_check then "" else "#nocheck ") ^
+        (if do_wrap then "" else "#nowrap ")
+
     and statement_to_string : type a. a statement -> string = function
       | SUntyped { var ; defn } ->
         Format.sprintf "let %s = %s" (Ident.to_string var) (to_string defn)
       (* bluejay or desugared *)
       | STyped { typed_var ; defn ; typed_binding_opts } ->
         let {var = Ident s; tau} = typed_var in
-        let opts_string =
-          match typed_binding_opts with
-          | TBBluejay -> ""
-          | TBDesugared { do_check ; do_wrap } ->
-            (if do_check then "" else "#nocheck ") ^
-            (if do_wrap then "" else "#nowrap ")
-        in
+        let opts_string = binding_opts_to_string typed_binding_opts in
         Format.sprintf "let %s (%s:%s) = %s"
           opts_string s (to_string tau) (to_string defn)
       (* bluejay only *)
@@ -965,7 +961,7 @@ module Expr = struct
       | FUntyped { func_id = Ident f ; params; defn } ->
         f ^ " " ^ String.concat ~sep:" " (List.map params ~f:(fun x -> let Ident s = x in s)) ^ " = " ^ to_string defn
       | FTyped func ->
-        let { type_vars ; func_id = Ident f ; params ; ret_type ; defn } = func in
+        let { type_vars ; func_id = Ident f ; params ; ret_type ; defn ; _ } = func in
         let vars_eval = if List.length type_vars = 0 then "" else Format.sprintf "(type %s)" (String.concat ~sep:" " (List.map type_vars ~f:(fun x ->
             let Ident s = x in s))) in
         let params_eval = String.concat ~sep:" " (List.map params ~f:(fun x ->
@@ -1208,6 +1204,19 @@ module Bluejay = struct
   type typed_var = bluejay Expr.typed_var
   type param = bluejay Expr.param
   type statement = bluejay Expr.statement
+
+  let turn_off_funsig_check (fsig : funsig) : funsig =
+    match fsig with
+    | FUntyped _ -> fsig
+    | FTyped r -> FTyped { r with do_check = false }
+
+  let turn_off_check (stmt : statement) : statement =
+    match stmt with
+    | SUntyped _ -> stmt
+    | STyped st ->
+      STyped { st with typed_binding_opts = TBBluejay { do_check = false } }
+    | SFun fsig -> SFun (turn_off_funsig_check fsig)
+    | SFunRec fsigs -> SFunRec (List.map fsigs ~f:turn_off_funsig_check)
 
   let rec is_deterministic_pgm (pgm : pgm) : bool =
     match pgm with

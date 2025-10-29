@@ -110,6 +110,7 @@ let pick_funsig ~(ctx : 'a context) : 'a funsig =
              params = pick_list ~ctx (fun () -> pick_param ~ctx);
              ret_type = pick_expr ~ctx;
              defn = pick_expr ~ctx;
+             do_check = true (* FIXME: this should be picked too *)
            }
 
 let pick_typed_var ~(ctx : 'a context) : 'a typed_var =
@@ -437,7 +438,8 @@ type 'lang generator_parts = {
 }
 
 let bluejay_generator_parts : bluejay generator_parts =
-  let typed_binding_opts_gen ~ctx = ignore ctx; TBBluejay in
+  (* FIXME: do_check should be generated *)
+  let typed_binding_opts_gen ~ctx = ignore ctx; TBBluejay { do_check = true } in
   {
     terminating_leaf_pattern_generators = [
       rand_PAny;
