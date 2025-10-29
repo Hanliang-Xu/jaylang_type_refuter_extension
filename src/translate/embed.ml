@@ -613,6 +613,38 @@ let embed_pgm (names : (module Fresh_names.S)) (pgm : Desugared.pgm) ~(do_wrap :
 
   embed_single_program pgm
 
+let split_checks_after_index (stmt_ls : Desugared.statement list) (index : int) : Desugared.pgm Preface.Nonempty_list.t =
+  Printf.printf "DEBUG: split_checks_after_index called with index=%d, stmt_count=%d\n" 
+    index (List.length stmt_ls);
+    
+  let has_check (stmt : Desugared.statement) : bool =
+    match stmt with
+    | SUntyped _ -> false
+    | STyped { typed_binding_opts = TBDesugared { do_check ; _ } ; _ } ->
+      do_check
+  in
+  (*
+    Find the statement at the given index that has a check, and return a program with only that check on.
+  *)
+  let rec go prev_stmts stmts cur_index =
+    match stmts with
+    | [] -> None
+    | stmt :: tl ->
+      if (has_check stmt && cur_index = index)
+      then
+        let new_pgm =
+          prev_stmts
+          @ [ stmt ]
+          @ List.map tl ~f:Desugared.turn_off_check
+        in
+        Some (Preface.Nonempty_list.Last new_pgm)
+      else
+        go (prev_stmts @ [ Desugared.turn_off_check stmt ]) tl (cur_index + 1)
+  in
+  match go [] stmt_ls 0 with
+  | None -> Preface.Nonempty_list.Last stmt_ls
+  | Some pgm -> pgm
+
 (* 
   Split the program into many different programs, where each one has a different check turned on, and the rest are off.
 

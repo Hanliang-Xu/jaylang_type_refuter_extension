@@ -1,4 +1,4 @@
-let rec gcd (dependent a : int | a > 0)
+(* let rec gcd (dependent a : int | a > 0)
             (dependent b : int | b > 0) : { x : int | x < 0 && x <= a && x <= b } =
   let rem = a % b in
   if rem == 0
@@ -6,4 +6,10 @@ let rec gcd (dependent a : int | a > 0)
   else gcd b rem
 
 let lcm (dependent n : int | n > 0) (dependent m : int | m > 0) : { x : int | x >= n && x >= m } =
-  n * m / gcd n m
+  n * m / gcd n m *)
+
+let x : int = 1
+
+let y : bool = 2
+
+let z : int = 3

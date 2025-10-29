@@ -9,6 +9,7 @@ module type S = sig
       options:Options.t ->
       do_wrap:bool ->
       do_type_splay:Translate.Splay.t ->
+      check_index:int option ->
       Lang.Ast.some_program ->
       Status.Terminal.t * tape
 
@@ -16,6 +17,7 @@ module type S = sig
       options:Options.t ->
       do_wrap:bool ->
       do_type_splay:Translate.Splay.t ->
+      check_index:int option ->
       Core.Filename.t ->
       Status.Terminal.t * tape
 
@@ -41,6 +43,7 @@ module Of_logger (T : Utils.Logger.TRANSFORMER with type B.a = Stat.t) : S with 
       options:Options.t ->
       do_wrap:bool ->
       do_type_splay:Translate.Splay.t ->
+      check_index:int option ->
       Lang.Ast.some_program ->
       Status.Terminal.t * tape
 
@@ -48,6 +51,7 @@ module Of_logger (T : Utils.Logger.TRANSFORMER with type B.a = Stat.t) : S with 
       options:Options.t ->
       do_wrap:bool ->
       do_type_splay:Translate.Splay.t ->
+      check_index:int option ->
       Core.Filename.t ->
       Status.Terminal.t * tape
 
@@ -133,12 +137,13 @@ module Of_logger (T : Utils.Logger.TRANSFORMER with type B.a = Stat.t) : S with 
       options:Options.t ->
       do_wrap:bool ->
       do_type_splay:Translate.Splay.t ->
+      check_index:int option ->
       Lang.Ast.some_program ->
       Status.Terminal.t * tape =
-      fun ~options ~do_wrap ~do_type_splay program ->
+      fun ~options ~do_wrap ~do_type_splay ~check_index program ->
       if options.in_parallel
       then
-        let pgms = Translate.Convert.some_program_to_many_emb program ~do_wrap ~do_type_splay in
+        let pgms = Translate.Convert.some_program_to_many_emb program ~do_wrap ~do_type_splay ~check_index in
         match pgms with
         | Last pgm -> 
           (* Nothing to do in parallel if only one program *)
@@ -156,17 +161,18 @@ module Of_logger (T : Utils.Logger.TRANSFORMER with type B.a = Stat.t) : S with 
       options:Options.t ->
       do_wrap:bool ->
       do_type_splay:Translate.Splay.t ->
+      check_index:int option ->
       Lang.Ast.some_program ->
       Status.Terminal.t * tape =
-      fun ~options ~do_wrap ~do_type_splay program ->
+      fun ~options ~do_wrap ~do_type_splay ~check_index program ->
       let status, tape = 
         match do_type_splay with
-        | No -> test_without_printing ~options ~do_wrap ~do_type_splay program
+        | No -> test_without_printing ~options ~do_wrap ~do_type_splay ~check_index program
         | Yes_with_depth max_depth ->
           (* Try depth 1 first and work up to max depth, which was the depth provided. *)
           let rec loop cur_depth =
             let status, tape =
-              test_without_printing ~options ~do_wrap ~do_type_splay:(Yes_with_depth cur_depth) program
+              test_without_printing ~options ~do_wrap ~do_type_splay:(Yes_with_depth cur_depth) ~check_index program
             in
             (* Done if we did the max depth or there was no error, which means there's also no error at one level deeper *)
             if cur_depth >= max_depth || not (Common.Status.is_error_found status)
@@ -185,13 +191,14 @@ module Of_logger (T : Utils.Logger.TRANSFORMER with type B.a = Stat.t) : S with 
     *)
 
     let test_some_file :
-      options:Options.t -> do_wrap:bool -> do_type_splay:Translate.Splay.t -> Filename.t ->
+      options:Options.t -> do_wrap:bool -> do_type_splay:Translate.Splay.t -> check_index:int option -> Filename.t ->
       Status.Terminal.t * tape =
-      fun ~options ~do_wrap ~do_type_splay filename ->
+      fun ~options ~do_wrap ~do_type_splay ~check_index filename ->
       test_some_program
         ~options
         ~do_wrap
         ~do_type_splay
+        ~check_index
         (Lang.Parser.parse_program_from_file filename)
 
     (*
@@ -205,9 +212,9 @@ module Of_logger (T : Utils.Logger.TRANSFORMER with type B.a = Stat.t) : S with 
       let open Cmdliner.Term.Syntax in
       Cmd.v (Cmd.info "ceval") @@
       let+ options = Options.cmd_arg_term
-      and+ `Do_wrap do_wrap, `Do_type_splay do_type_splay = Translate.Convert.cmd_arg_term
+      and+ `Do_wrap do_wrap, `Do_type_splay do_type_splay, `Check_index check_index = Translate.Convert.cmd_arg_term_with_check_index
       and+ pgm = Lang.Parser.parse_program_from_argv in
-      let status, _ = test_some_program ~options ~do_wrap ~do_type_splay pgm in
+      let status, _ = test_some_program ~options ~do_wrap ~do_type_splay ~check_index pgm in
       status
   end
 

@@ -8,6 +8,7 @@ module type S = sig
       options:Options.t ->
       do_wrap:bool ->
       do_type_splay:Translate.Splay.t ->
+      check_index:int option ->
       Lang.Ast.some_program ->
       Status.Terminal.t * tape
     (** Performs concolic evaluation on the provided program or times out if the
@@ -17,6 +18,7 @@ module type S = sig
       options:Options.t ->
       do_wrap:bool ->
       do_type_splay:Translate.Splay.t ->
+      check_index:int option ->
       Core.Filename.t ->
       Status.Terminal.t * tape
     (** Performs concolic evaluation on the program in the provided file or times
