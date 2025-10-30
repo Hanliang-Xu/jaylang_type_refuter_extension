@@ -8,8 +8,25 @@
 let lcm (dependent n : int | n > 0) (dependent m : int | m > 0) : { x : int | x >= n && x >= m } =
   n * m / gcd n m *)
 
-let x : int = 1
+(* let x : int = 1
 
-let y : bool = 2
+let y : unit -> int = fun _ -> 
+  let y_aux : bool = 2 in
+  y_aux
 
-let z : int = 3
+let z : int = y () *)
+
+(* exepct this to work if we turn off check at the bluejay level *)
+(* let rec even (dependent n : int | n >= 0) : { b : bool | b == (n % 2 == 0) } =
+  n == 0 || odd (n - 1)
+
+and odd (dependent n : int | n >= 0) : { b : bool | b == (n % 2 <> 0) } =
+  n <> 0 && even (n - 1)
+
+let y : bool = 2 *)
+
+
+(* three possibilities: safe, error, running - first two states cache the results, last state keeps running *)
+
+
+(* Figure out parallelism - precise information, give the results ASAP *)

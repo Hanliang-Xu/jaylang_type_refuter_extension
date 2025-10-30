@@ -1181,6 +1181,7 @@ module Desugared = struct
   type pattern = desugared Pattern.t
   type statement = desugared Expr.statement
 
+  (* *)
   let turn_off_check (stmt : statement) : statement =
     match stmt with
     | SUntyped _ -> stmt

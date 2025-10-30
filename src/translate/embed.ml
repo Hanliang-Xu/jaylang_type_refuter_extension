@@ -630,11 +630,14 @@ let split_checks_after_index (stmt_ls : Desugared.statement list) (index : int) 
     match stmts with
     | [] -> None
     | stmt :: tl ->
+
+      (* realize that there's the program *)
       if (has_check stmt && cur_index = index)
       then
         let new_pgm =
           prev_stmts
           @ [ stmt ]
+          (* all the statements after this should GET DELETED!!! *)
           @ List.map tl ~f:Desugared.turn_off_check
         in
         Some (Preface.Nonempty_list.Last new_pgm)
