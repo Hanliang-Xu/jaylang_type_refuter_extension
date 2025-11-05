@@ -16,3 +16,6 @@ val desugar_pgm : (module Translation_tools.Fresh_names.S) -> Lang.Ast.Bluejay.p
     yes, and if [bjy] contains any [input] (i.e. nondeterminism), then a runtime exception 
     is raised because type splaying comes with stubbing recursive types, which is unsound
     if the type is nondeterministic. *)
+
+val split_checks_before_desugar : (module Translation_tools.Fresh_names.S) -> Lang.Ast.Bluejay.pgm ->
+  do_type_splay:Splay.t -> check_index:int option -> Lang.Ast.Desugared.pgm

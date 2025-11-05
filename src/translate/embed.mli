@@ -25,6 +25,3 @@ val embed_fragmented : (module Translation_tools.Fresh_names.S) -> Lang.Ast.Desu
     do_wrap:bool -> do_type_splay:Splay.t -> Lang.Ast.Embedded.pgm Preface.Nonempty_list.t
 (** [embed_fragmented (module F) des do_wrap do_type_splay] embeds the [des] into many programs
     that each have a different check turned on. *)
-
-val split_checks_after_index : Lang.Ast.Desugared.statement list -> int -> Lang.Ast.Desugared.pgm Preface.Nonempty_list.t
-(** [split_checks_after_index stmt_ls index] returns a program with only the check at the given index enabled. *)

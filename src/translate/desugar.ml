@@ -298,3 +298,29 @@ let desugar_pgm (names : (module Fresh_names.S)) (pgm : Bluejay.pgm) ~(do_type_s
   in
 
   List.bind pgm ~f:desugar_statement
+
+let split_checks_bluejay (stmt_ls : Bluejay.pgm) ~(check_index : int option) : Bluejay.pgm =
+  let turn_off = Ast.Bluejay.turn_off_check in
+
+  match check_index with
+  | None -> stmt_ls
+  | Some target_idx ->
+    let rec go check_idx prev_stmts stmts =
+      match stmts with
+      | [] -> prev_stmts
+      | stmt :: tl ->
+        if check_idx >= target_idx
+        then
+          go (check_idx + 1) (prev_stmts @ [ turn_off stmt ]) tl
+        else
+          go (check_idx + 1) (prev_stmts @ [ stmt ]) tl
+    in
+    go 0 [] stmt_ls
+
+let split_checks_before_desugar 
+    (names : (module Fresh_names.S)) 
+    (pgm : Bluejay.pgm) 
+    ~(do_type_splay : Splay.t) 
+    ~(check_index : int option) 
+  : Desugared.pgm =
+  desugar_pgm names (split_checks_bluejay pgm ~check_index) ~do_type_splay

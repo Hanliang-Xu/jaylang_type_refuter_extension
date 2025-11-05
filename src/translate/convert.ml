@@ -24,12 +24,9 @@ let des_to_emb (des : Desugared.pgm) ~(do_wrap : bool) ~(do_type_splay : Splay.t
   Embed.embed_pgm (module Names) ~do_wrap ~do_type_splay des
 
 let des_to_many_emb (des : Desugared.pgm) ~(do_wrap : bool) ~(do_type_splay : Splay.t) ~(check_index : int option) : Embedded.pgm Preface.Nonempty_list.t =
+  ignore check_index;
   let module Names = Translation_tools.Fresh_names.Make () in
-  match check_index with
-  | None -> des |> Embed.embed_fragmented (module Names) ~do_wrap ~do_type_splay
-  | Some index -> 
-    Embed.split_checks_after_index des index
-    |> Preface.Nonempty_list.map (fun pgm -> Embed.embed_pgm (module Names) ~do_wrap ~do_type_splay pgm)
+  des |> Embed.embed_fragmented (module Names) ~do_wrap ~do_type_splay
 
 let bjy_to_des (bjy : Bluejay.pgm) ~(do_type_splay : Splay.t) : Desugared.pgm =
   let module Names = Translation_tools.Fresh_names.Make () in
@@ -47,6 +44,11 @@ let bjy_to_many_emb (bjy : Bluejay.pgm) ~(do_wrap : bool) ~(do_type_splay : Spla
   |> bjy_to_des ~do_type_splay
   |> des_to_many_emb ~do_wrap ~do_type_splay ~check_index
 
+let bjy_to_many_emb_split_first (bjy : Bluejay.pgm) ~(do_wrap : bool) ~(do_type_splay : Splay.t) ~(check_index : int option) : Embedded.pgm Preface.Nonempty_list.t =
+  let module Names = Translation_tools.Fresh_names.Make () in
+  let des_pgm = Desugar.split_checks_before_desugar (module Names) bjy ~do_type_splay ~check_index in
+  Preface.Nonempty_list.Last (Embed.embed_pgm (module Names) des_pgm ~do_wrap ~do_type_splay)
+
 let bjy_to_erased (bjy : Bluejay.pgm) : Type_erased.pgm =
   Type_erasure.erase bjy
 
@@ -62,7 +64,7 @@ let some_program_to_emb (prog : some_program) ~(do_wrap : bool) ~(do_type_splay 
 let some_program_to_many_emb (prog : some_program) ~(do_wrap : bool) ~(do_type_splay : Splay.t) ~(check_index : int option) : Embedded.pgm Preface.Nonempty_list.t =
   match prog with
   | SomeProgram(BluejayLanguage, bjy_prog) ->
-    bjy_to_many_emb ~do_wrap ~do_type_splay ~check_index bjy_prog
+    bjy_to_many_emb_split_first ~do_wrap ~do_type_splay ~check_index bjy_prog
   | SomeProgram(DesugaredLanguage, des_prog) ->
     des_to_many_emb ~do_wrap ~do_type_splay ~check_index des_prog
   | SomeProgram(EmbeddedLanguage, emb_prog) ->

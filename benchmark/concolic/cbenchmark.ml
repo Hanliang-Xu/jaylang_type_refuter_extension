@@ -159,6 +159,7 @@ let run () =
       ~options
       ~do_wrap
       ~do_type_splay
+      ~check_index:None
       pgm
   in
   let tbl = Result_table.of_dirs n_trials dirs runtest in

@@ -180,6 +180,7 @@ let run () =
       ~options:{ options with random = true }
       ~do_wrap:true        (* always wrap during benchmarking *)
       ~do_type_splay:No    (* never type splay during benchmarking *)
+      ~check_index:None
       pgm
   in
   let runtest_deferred pgm =
@@ -187,6 +188,7 @@ let run () =
       ~options:{ options with random = true }
       ~do_wrap:true        (* always wrap during benchmarking *)
       ~do_type_splay:No    (* never type splay during benchmarking *)
+      ~check_index:None
       pgm
   in
   let eager_results = of_dirs "Eager" n_trials dirs runtest_eager |> Result_table.add_average "Eager" in

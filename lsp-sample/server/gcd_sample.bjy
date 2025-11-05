@@ -8,7 +8,6 @@ let f (type a) (x : t a) : t a =
 let rec g (x : int) : { int | h } =
   x * x + 1
 
-
 let rec f (x : int) : t () =
   x
 

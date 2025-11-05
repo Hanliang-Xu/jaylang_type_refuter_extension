@@ -241,7 +241,7 @@ statement_with_position:
   | LET typed_binding EQUALS expr
       { ((STyped { typed_var = { var = fst $2 ; tau = snd $2 };
                  defn = $4;
-                 typed_binding_opts = TBBluejay
+                 typed_binding_opts = TBBluejay { do_check = true }
                } : statement), ($startpos, $endpos))
       }
   | letfun_rec

@@ -8,13 +8,11 @@
 let lcm (dependent n : int | n > 0) (dependent m : int | m > 0) : { x : int | x >= n && x >= m } =
   n * m / gcd n m *)
 
-(* let x : int = 1
+let x : int = 1
 
-let y : unit -> int = fun _ -> 
-  let y_aux : bool = 2 in
-  y_aux
+let y : bool = 2
 
-let z : int = y () *)
+let z : int = 3
 
 (* exepct this to work if we turn off check at the bluejay level *)
 (* let rec even (dependent n : int | n >= 0) : { b : bool | b == (n % 2 == 0) } =
