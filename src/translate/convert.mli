@@ -9,22 +9,24 @@ val cmd_arg_term : ([ `Do_wrap of bool ] * [ `Do_type_splay of Splay.t ]) Cmdlin
 
 val cmd_arg_term_with_check_index : ([ `Do_wrap of bool ] * [ `Do_type_splay of Splay.t ] * [ `Check_index of int option ]) Cmdliner.Term.t
 
-val des_to_emb : Lang.Ast.Desugared.pgm -> do_wrap:bool -> do_type_splay:Splay.t -> Lang.Ast.Embedded.pgm
-(** [des_to_emb des do_wrap do_type_splay] is a program where all types in [des] have
+val des_to_emb : Lang.Ast.Desugared.pgm -> do_wrap:bool -> do_type_splay:Splay.t -> check_index:int option -> Lang.Ast.Embedded.pgm
+(** [des_to_emb des do_wrap do_type_splay check_index] is a program where all types in [des] have
     been embedded as expressions with runtime checks. Thus, behavior of the output program
     is not guaranteed to be identical to the input program.
     The "wrap" behavior is only on if [do_wrap] is true.
-    See the docs for translation behavior if [do_type_splay] is yes. *)
+    See the docs for translation behavior if [do_type_splay] is yes.
+    If [check_index] is [Some idx], only the check at index [idx] is enabled; all others are turned off. *)
 
 val bjy_to_des : Lang.Ast.Bluejay.pgm -> do_type_splay:Splay.t -> Lang.Ast.Desugared.pgm
 (** [bjy_to_des bjy] is a desugared program that is identical to [bjy]. *)
 
-val bjy_to_emb : Lang.Ast.Bluejay.pgm -> do_wrap:bool -> do_type_splay:Splay.t -> Lang.Ast.Embedded.pgm
-(** [bjy_to_emb bjy do_wrap do_type_splay] is a program where all types in [bjy] have
+val bjy_to_emb : Lang.Ast.Bluejay.pgm -> do_wrap:bool -> do_type_splay:Splay.t -> check_index:int option -> Lang.Ast.Embedded.pgm
+(** [bjy_to_emb bjy do_wrap do_type_splay check_index] is a program where all types in [bjy] have
     been embedded as expressions with runtime checks. Thus, behavior of the output program
     is not guaranteed to be identical to the input program.
     The "wrap" behavior is only on if [do_wrap] is true.
-    See the docs for translation behavior if [do_type_splay] is yes. *)
+    See the docs for translation behavior if [do_type_splay] is yes.
+    If [check_index] is [Some idx], only the check at index [idx] is enabled; all others are turned off. *)
 
 val bjy_to_many_emb : Lang.Ast.Bluejay.pgm -> do_wrap:bool -> do_type_splay:Splay.t -> check_index:int option -> Lang.Ast.Embedded.pgm Preface.Nonempty_list.t
 (** [bjy_to_many_emb bjy do_wrap do_type_splay check_index] embeds the Bluejay program into many embedded programs.
@@ -40,12 +42,14 @@ val bjy_to_erased : Lang.Ast.Bluejay.pgm -> Lang.Ast.Type_erased.pgm
 (** [bjy_to_erased pgm] is a program where all types in the given Bluejay program [pgm]
     are erased. Types are replaced with unusable unit values. *)
 
-val some_program_to_emb : Lang.Ast.some_program -> do_wrap:bool -> do_type_splay:Splay.t -> Lang.Ast.Embedded.pgm
-(** [some_program_to_emb prog do_wrap do_type_splay] converts a [some_program] structure
-    into an embedded program.  Note that [do_wrap] and [do_type_splay] may not apply depending
-    upon the contents of [some_program]. *)
-
-val some_program_to_many_emb : Lang.Ast.some_program -> do_wrap:bool -> do_type_splay:Splay.t -> check_index:int option -> Lang.Ast.Embedded.pgm Preface.Nonempty_list.t
+val some_program_to_emb : Lang.Ast.some_program -> do_wrap:bool -> do_type_splay:Splay.t -> check_index:int option -> Lang.Ast.Embedded.pgm
 (** [some_program_to_emb prog do_wrap do_type_splay check_index] converts a [some_program] structure
-    into many embedded programs. If [check_index] is provided, only that check is enabled.
+    into an embedded program.  Note that [do_wrap] and [do_type_splay] may not apply depending
+    upon the contents of [some_program].
+    If [check_index] is [Some idx], only the check at index [idx] is enabled; all others are turned off.
+    This works for Bluejay and Desugared programs; Embedded programs ignore [check_index]. *)
+
+val some_program_to_many_emb : Lang.Ast.some_program -> do_wrap:bool -> do_type_splay:Splay.t -> Lang.Ast.Embedded.pgm Preface.Nonempty_list.t
+(** [some_program_to_many_emb prog do_wrap do_type_splay] converts a [some_program] structure
+    into many embedded programs, one for each check. All checks are enabled in their respective programs.
     Note that [do_wrap] and [do_type_splay] may not apply depending upon the contents of [some_program]. *)

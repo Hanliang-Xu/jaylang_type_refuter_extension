@@ -21,7 +21,7 @@ let deval =
   let+ pgm = Lang.Parser.parse_program_from_argv 
   and+ `Do_wrap do_wrap, `Do_type_splay do_type_splay = Translate.Convert.cmd_arg_term
   and+ inputs = Interp_common.Input.parse_list in
-  Translate.Convert.some_program_to_emb ~do_wrap ~do_type_splay pgm
+  Translate.Convert.some_program_to_emb ~do_wrap ~do_type_splay ~check_index:None pgm
   |> Deferred.Main.deval_with_input_sequence inputs
   |> (function
       | Ok v -> Format.printf "Your program evaluated to:\n%s\n" (Deferred.Value.Without_symbols.to_string v)

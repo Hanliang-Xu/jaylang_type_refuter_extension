@@ -143,7 +143,8 @@ module Of_logger (T : Utils.Logger.TRANSFORMER with type B.a = Stat.t) : S with 
       fun ~options ~do_wrap ~do_type_splay ~check_index program ->
       if options.in_parallel
       then
-        let pgms = Translate.Convert.some_program_to_many_emb program ~do_wrap ~do_type_splay ~check_index in
+        (* When -p is provided, run all checks in parallel *)
+        let pgms = Translate.Convert.some_program_to_many_emb program ~do_wrap ~do_type_splay in
         match pgms with
         | Last pgm -> 
           (* Nothing to do in parallel if only one program *)
@@ -154,7 +155,8 @@ module Of_logger (T : Utils.Logger.TRANSFORMER with type B.a = Stat.t) : S with 
           let status_m = P.process_all @@ Preface.Nonempty_list.map Lang.Ast_tools.Utils.pgm_to_module pgms in
           Log.run status_m
       else
-        let pgm = Translate.Convert.some_program_to_emb program ~do_wrap ~do_type_splay in
+        (* When -p is not provided, use check_index if provided, otherwise use default conversion *)
+        let pgm = Translate.Convert.some_program_to_emb program ~do_wrap ~do_type_splay ~check_index in
         test_with_timeout ~options @@ Lang.Ast_tools.Utils.pgm_to_module pgm
 
     let test_some_program :
