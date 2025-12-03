@@ -11,7 +11,7 @@ import {
 } from 'vscode-languageserver/node';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 
-import { execFile } from 'child_process';
+import { execFile, ChildProcess } from 'child_process';
 import { fileURLToPath } from 'url';
 import { runJsonParserFromString, StatementInfo } from './parser';
 
@@ -40,6 +40,467 @@ connection.onInitialized(async () => {
   workspaceRoot = folders?.[0]?.uri ? fileURLToPath(folders[0].uri) : process.cwd();
   console.log('Workspace root:', workspaceRoot);
 });
+
+// ----- State Management for Parallel Check Execution -----
+interface StatementValidity {
+  statementIndex: number;
+  status: 'pending' | 'running' | 'valid' | 'invalid' | 'error' | 'timeout' | 'pruned';
+  message?: string;
+  lastUpdated: number; // timestamp in milliseconds
+}
+
+// Per-document state: Map<uri, Map<statementIndex, StatementValidity>>
+const documentState = new Map<string, Map<number, StatementValidity>>();
+
+// Track running processes: Map<uri, Map<statementIndex, ChildProcess>>
+const runningProcesses = new Map<string, Map<number, ChildProcess>>();
+
+// Track previous document content to detect change positions: Map<uri, string>
+const previousDocumentContent = new Map<string, string>();
+
+// ----- Helper: Cancel running processes for a document -----
+// If minStatementIndex is provided, only cancels processes for statements >= minStatementIndex
+// Otherwise, cancels all processes for the document
+function cancelRunningProcesses(uri: string, minStatementIndex?: number): void {
+  const processes = runningProcesses.get(uri);
+  if (!processes) {
+    return; // No processes running for this document
+  }
+
+  if (minStatementIndex === undefined) {
+    // Cancel all processes
+    connection.console.info(`Cancelling ${processes.size} running processes for ${uri}`);
+    
+    processes.forEach((process, statementIndex) => {
+      try {
+        process.kill('SIGTERM');
+        connection.console.info(`Killed process for statement ${statementIndex}`);
+      } catch (err) {
+        connection.console.error(`Error killing process for statement ${statementIndex}: ${err}`);
+      }
+    });
+
+    // Clear the processes map for this document
+    runningProcesses.delete(uri);
+  } else {
+    // Cancel only processes for statements >= minStatementIndex
+    let cancelledCount = 0;
+    processes.forEach((process, statementIndex) => {
+      if (statementIndex >= minStatementIndex) {
+        try {
+          process.kill('SIGTERM');
+          connection.console.info(`Killed process for statement ${statementIndex} (>= ${minStatementIndex})`);
+          cancelledCount++;
+        } catch (err) {
+          connection.console.error(`Error killing process for statement ${statementIndex}: ${err}`);
+        }
+      }
+    });
+
+    // Remove cancelled processes from the map
+    processes.forEach((process, statementIndex) => {
+      if (statementIndex >= minStatementIndex) {
+        processes.delete(statementIndex);
+      }
+    });
+
+    connection.console.info(`Cancelled ${cancelledCount} processes for statements >= ${minStatementIndex} in ${uri}`);
+    
+    // If no processes remain, clean up the map
+    if (processes.size === 0) {
+      runningProcesses.delete(uri);
+    }
+  }
+}
+
+// ----- Helper: Generate diagnostics from state map -----
+function generateDiagnostics(
+  uri: string,
+  statements: StatementInfo[],
+  state: Map<number, StatementValidity>
+): Diagnostic[] {
+  const diagnostics: Diagnostic[] = [];
+
+  for (const statement of statements) {
+    const validity = state.get(statement.index);
+    
+    if (!validity) {
+      // No validity info yet, skip
+      continue;
+    }
+
+    const startPos = Position.create(statement.start.line - 1, statement.start.col);
+    const endPos = Position.create(statement.end.line - 1, statement.end.col);
+
+    // Only show diagnostics for completed checks (skip running to reduce noise)
+    // But show pending status as it indicates "no definitive answer yet"
+    if (validity.status === 'running') {
+      // Skip running - too noisy
+      continue;
+    }
+
+    // Map status to diagnostic severity
+    let severity: DiagnosticSeverity;
+    let message: string;
+
+    switch (validity.status) {
+      case 'valid':
+        // Optionally hide valid checks too - uncomment to show only errors/warnings
+        // continue;
+        severity = DiagnosticSeverity.Information;
+        message = `Statement ${statement.index} is valid${validity.message ? ': ' + validity.message : ''}`;
+        break;
+      case 'invalid':
+        severity = DiagnosticSeverity.Error;
+        message = `Statement ${statement.index} is invalid${validity.message ? ': ' + validity.message : ''}`;
+        break;
+      case 'error':
+        severity = DiagnosticSeverity.Error;
+        message = `Error checking statement ${statement.index}${validity.message ? ': ' + validity.message : ''}`;
+        break;
+      case 'timeout':
+        severity = DiagnosticSeverity.Warning;
+        message = `Check timeout for statement ${statement.index}`;
+        break;
+      case 'pruned':
+        severity = DiagnosticSeverity.Warning;
+        message = `Statement ${statement.index} check pruned${validity.message ? ': ' + validity.message : ''}`;
+        break;
+      case 'pending':
+        severity = DiagnosticSeverity.Information;
+        message = `Statement ${statement.index} check incomplete${validity.message ? ': ' + validity.message : ''}`;
+        break;
+      default:
+        severity = DiagnosticSeverity.Information;
+        message = `Unknown status for statement ${statement.index}`;
+    }
+
+    diagnostics.push({
+      range: Range.create(startPos, endPos),
+      severity,
+      message,
+      source: 'bluejay-lsp',
+    });
+  }
+
+  return diagnostics;
+}
+
+// ----- Helper: Promise wrapper for execFile -----
+function execFilePromise(
+  command: string,
+  args: string[],
+  options: { cwd?: string }
+): { 
+  promise: Promise<{ stdout: string; stderr: string; exitCode: number | null }>;
+  process: ChildProcess;
+} {
+  let processHandle: ChildProcess;
+  
+  const promise = new Promise<{ stdout: string; stderr: string; exitCode: number | null }>((resolve, reject) => {
+    processHandle = execFile(
+      command,
+      args,
+      options,
+      (err, stdout, stderr) => {
+        if (err) {
+          resolve({
+            stdout: stdout || '',
+            stderr: stderr || '',
+            exitCode: (err as any).code ?? null,
+          });
+        } else {
+          resolve({
+            stdout: stdout || '',
+            stderr: stderr || '',
+            exitCode: 0,
+          });
+        }
+      }
+    );
+  });
+  
+  return { promise, process: processHandle! };
+}
+
+// ----- Helper: Parse ceval.exe output and determine status -----
+// Returns the raw status string from output for two-phase checking
+function parseCevalOutputRaw(stdout: string, stderr: string, exitCode: number | null): {
+  statusString: string;
+  message?: string;
+} {
+  const output = (stdout || '') + (stderr || '');
+  const outputUpper = output.toUpperCase();
+
+  // Check for error conditions first
+  if (exitCode !== null && exitCode !== 0) {
+    return {
+      statusString: 'ERROR',
+      message: `Process exited with code ${exitCode}: ${output.trim()}`,
+    };
+  }
+
+  // Parse status from output (ceval uses to_loud_string which uppercases and replaces spaces with underscores)
+  if (outputUpper.includes('FOUND_ABORT')) {
+    const match = output.match(/Found abort:\s*\n\s*(.+)/i);
+    return {
+      statusString: 'FOUND_ABORT',
+      message: match ? match[1].trim() : 'Abort found',
+    };
+  }
+
+  if (outputUpper.includes('TYPE_MISMATCH')) {
+    const match = output.match(/Type mismatch:\s*\n\s*(.+)/i);
+    return {
+      statusString: 'TYPE_MISMATCH',
+      message: match ? match[1].trim() : 'Type mismatch found',
+    };
+  }
+
+  if (outputUpper.includes('UNBOUND_VARIABLE')) {
+    const match = output.match(/Unbound variable:\s*\n\s*(.+)/i);
+    return {
+      statusString: 'UNBOUND_VARIABLE',
+      message: match ? match[1].trim() : 'Unbound variable found',
+    };
+  }
+
+  if (outputUpper.includes('TIMEOUT')) {
+    return {
+      statusString: 'TIMEOUT',
+      message: 'Check timed out',
+    };
+  }
+
+  if (outputUpper.includes('EXHAUSTED_PRUNED_TREE')) {
+    return {
+      statusString: 'EXHAUSTED_PRUNED_TREE',
+      message: 'Search space pruned, no definitive answer',
+    };
+  }
+
+  if (outputUpper.includes('EXHAUSTED')) {
+    return {
+      statusString: 'EXHAUSTED',
+      message: 'No errors found',
+    };
+  }
+
+  if (outputUpper.includes('UNKNOWN_DUE_TO_SOLVER_TIMEOUT')) {
+    return {
+      statusString: 'UNKNOWN_DUE_TO_SOLVER_TIMEOUT',
+      message: 'Solver timeout',
+    };
+  }
+
+  // Default: if we got here and exit code was 0, assume unfinished/incomplete
+  if (exitCode === 0) {
+    return {
+      statusString: 'UNFINISHED',
+      message: output.trim() || 'Check completed but no definitive result',
+    };
+  }
+
+  // Unknown output format
+  return {
+    statusString: 'ERROR',
+    message: `Unexpected output: ${output.trim()}`,
+  };
+}
+
+// Convert raw status string to StatementValidity status after two-phase check
+function convertStatusToValidity(statusString: string, message?: string): {
+  status: StatementValidity['status'];
+  message?: string;
+} {
+  switch (statusString) {
+    case 'EXHAUSTED':
+      return { status: 'valid', message: message || 'No errors found' };
+    case 'EXHAUSTED_PRUNED_TREE':
+      return { status: 'pruned', message: message || 'Search space pruned, no definitive answer' };
+    case 'UNFINISHED':
+      return { status: 'pending', message: message || 'No definitive answer yet' };
+    case 'FOUND_ABORT':
+    case 'TYPE_MISMATCH':
+    case 'UNBOUND_VARIABLE':
+      return { status: 'invalid', message: message || 'Provably unsafe' };
+    case 'TIMEOUT':
+      return { status: 'timeout', message: message || 'Check timed out' };
+    case 'UNKNOWN_DUE_TO_SOLVER_TIMEOUT':
+    case 'ERROR':
+    default:
+      return { status: 'error', message: message || 'Error during check' };
+  }
+}
+
+// ----- Main function: Run parallel checks for all statements -----
+// If minStatementIndex is provided, only cancels and starts checks for statements >= minStatementIndex
+// Preserves state and running processes for statements < minStatementIndex
+async function runParallelChecks(uri: string, statements: StatementInfo[], fsPath: string, minStatementIndex?: number): Promise<void> {
+  // 1. Get or initialize state map
+  let state = documentState.get(uri);
+  if (!state) {
+    state = new Map<number, StatementValidity>();
+  }
+
+  // 2. Get or initialize processes map
+  let processes = runningProcesses.get(uri);
+  if (!processes) {
+    processes = new Map<number, ChildProcess>();
+  }
+
+  if (statements.length === 0) {
+    connection.console.info(`No statements found for ${uri}`);
+    return;
+  }
+
+  // 3. Determine which statements to check
+  const statementsToCheck = minStatementIndex !== undefined
+    ? statements.filter(stmt => stmt.index >= minStatementIndex)
+    : statements;
+
+  if (statementsToCheck.length === 0) {
+    connection.console.info(`No statements to check (minStatementIndex=${minStatementIndex})`);
+    return;
+  }
+
+  // 4. Cancel existing processes for statements we're about to recheck
+  if (minStatementIndex !== undefined) {
+    cancelRunningProcesses(uri, minStatementIndex);
+    connection.console.info(`Starting checks for ${statementsToCheck.length} statements (>= ${minStatementIndex})`);
+  } else {
+    cancelRunningProcesses(uri);
+    connection.console.info(`Starting parallel checks for ${statements.length} statements`);
+  }
+
+  // 5. Initialize state for statements we're checking (preserve state for earlier statements)
+  for (const stmt of statementsToCheck) {
+    state.set(stmt.index, {
+      statementIndex: stmt.index,
+      status: 'pending',
+      lastUpdated: Date.now(),
+    });
+  }
+
+  // 6. Send initial diagnostics (preserving diagnostics for statements we're not rechecking)
+  const initialDiagnostics = generateDiagnostics(uri, statements, state);
+  connection.sendDiagnostics({ uri, diagnostics: initialDiagnostics });
+
+  // 7. Spawn ceval.exe process for each statement to check with --check-index
+  const cevalPath = './ceval.exe';
+
+  // Create promises for all checks - they start executing immediately
+  const checkPromises = statementsToCheck.map(async (stmt) => {
+    const statementIndex = stmt.index;
+    
+    // Update status to 'running'
+    state.set(statementIndex, {
+      statementIndex,
+      status: 'running',
+      lastUpdated: Date.now(),
+    });
+
+    // Send updated diagnostics
+    const runningDiagnostics = generateDiagnostics(uri, statements, state);
+    connection.sendDiagnostics({ uri, diagnostics: runningDiagnostics });
+
+    // Two-phase checking: first with -s flag, then without if needed
+    try {
+      // Phase 1: Run with -s flag (incomplete but sound checking)
+      connection.console.info(`Check ${statementIndex} phase 1: running with -s flag`);
+      const { promise: promisePhase1, process: processPhase1 } = execFilePromise(
+        cevalPath,
+        [fsPath, '--check-index', statementIndex.toString(), '-s'],
+        { cwd: workspaceRoot }
+      );
+
+      // Store process reference immediately (needed for cancellation)
+      processes.set(statementIndex, processPhase1);
+
+      const resultPhase1 = await promisePhase1;
+      const parsedPhase1 = parseCevalOutputRaw(resultPhase1.stdout, resultPhase1.stderr, resultPhase1.exitCode);
+
+      connection.console.info(`Check ${statementIndex} phase 1 result: ${parsedPhase1.statusString}`);
+
+      let finalStatus: StatementValidity['status'];
+      let finalMessage: string | undefined;
+
+      // If EXHAUSTED in phase 1, statement is safe (valid)
+      if (parsedPhase1.statusString === 'EXHAUSTED') {
+        finalStatus = 'valid';
+        finalMessage = 'No errors found (sound check)';
+        connection.console.info(`Check ${statementIndex} completed: valid (EXHAUSTED in phase 1)`);
+      } else {
+        // Phase 2: Run without -s flag for complete checking
+        connection.console.info(`Check ${statementIndex} phase 2: running without -s flag`);
+        const { promise: promisePhase2, process: processPhase2 } = execFilePromise(
+          cevalPath,
+          [fsPath, '--check-index', statementIndex.toString()],
+          { cwd: workspaceRoot }
+        );
+
+        // Update process reference for cancellation
+        processes.set(statementIndex, processPhase2);
+
+        const resultPhase2 = await promisePhase2;
+        const parsedPhase2 = parseCevalOutputRaw(resultPhase2.stdout, resultPhase2.stderr, resultPhase2.exitCode);
+
+        connection.console.info(`Check ${statementIndex} phase 2 result: ${parsedPhase2.statusString}`);
+
+        // Convert phase 2 result to validity status
+        const converted = convertStatusToValidity(parsedPhase2.statusString, parsedPhase2.message);
+        finalStatus = converted.status;
+        finalMessage = converted.message;
+
+        connection.console.info(
+          `Check ${statementIndex} completed: ${finalStatus}${finalMessage ? ' - ' + finalMessage : ''}`
+        );
+      }
+
+      // Update state with final result
+      state.set(statementIndex, {
+        statementIndex,
+        status: finalStatus,
+        message: finalMessage,
+        lastUpdated: Date.now(),
+      });
+
+      // Remove from running processes
+      processes.delete(statementIndex);
+
+      // Send incremental diagnostics update (as soon as this check completes)
+      // Use all statements (not just statementsToCheck) to preserve diagnostics for earlier statements
+      const updatedDiagnostics = generateDiagnostics(uri, statements, state);
+      connection.sendDiagnostics({ uri, diagnostics: updatedDiagnostics });
+    } catch (error) {
+      // Handle unexpected errors
+      state.set(statementIndex, {
+        statementIndex,
+        status: 'error',
+        message: error instanceof Error ? error.message : String(error),
+        lastUpdated: Date.now(),
+      });
+
+      processes.delete(statementIndex);
+
+      // Use all statements (not just statementsToCheck) to preserve diagnostics for earlier statements
+      const updatedDiagnostics = generateDiagnostics(uri, statements, state);
+      connection.sendDiagnostics({ uri, diagnostics: updatedDiagnostics });
+
+      connection.console.error(`Check ${statementIndex} failed: ${error}`);
+    }
+  });
+
+  // Store state and processes maps immediately (before promises complete)
+  documentState.set(uri, state);
+  runningProcesses.set(uri, processes);
+
+  // Wait for all checks to complete (but diagnostics are sent incrementally above)
+  // This ensures we can track when all are done for cleanup/logging
+  await Promise.allSettled(checkPromises);
+  
+  connection.console.info(`All checks completed for ${uri}${minStatementIndex !== undefined ? ` (for statements >= ${minStatementIndex})` : ''}`);
+}
 
 function runCeval(uri: string): Promise<void> {
   const fsPath = fileURLToPath(uri);
@@ -251,11 +712,99 @@ connection.onNotification('bluejay/rangeChanges', async (payload: {
 
 // ----- Document handlers -----
 documents.onDidOpen((event) => {
-  connection.console.info(`Document opened: ${event.document.uri}`);
+  const uri = event.document.uri;
+  connection.console.info(`Document opened: ${uri}`);
+  // Initialize previous content for change detection
+  previousDocumentContent.set(uri, event.document.getText());
 });
 
-documents.onDidChangeContent((event) => {
-  connection.console.info(`Document changed: ${event.document.uri}`);
+documents.onDidClose((event) => {
+  const uri = event.document.uri;
+  connection.console.info(`Document closed: ${uri}`);
+  // Cancel any running processes and clean up state
+  cancelRunningProcesses(uri);
+  documentState.delete(uri);
+  previousDocumentContent.delete(uri);
+  // Clear diagnostics
+  connection.sendDiagnostics({ uri, diagnostics: [] });
+});
+
+// Helper: Find the first position where two strings differ
+function findFirstDifference(oldText: string, newText: string): Position | null {
+  const minLength = Math.min(oldText.length, newText.length);
+  
+  // Find first character difference
+  for (let i = 0; i < minLength; i++) {
+    if (oldText[i] !== newText[i]) {
+      // Convert character offset to line/character position
+      const beforeDiff = oldText.substring(0, i);
+      const line = (beforeDiff.match(/\n/g) || []).length;
+      const lastNewline = beforeDiff.lastIndexOf('\n');
+      const character = lastNewline === -1 ? i : i - lastNewline - 1;
+      return Position.create(line, character);
+    }
+  }
+  
+  // If one string is longer, the difference starts at the end of the shorter one
+  if (oldText.length !== newText.length) {
+    const shorter = oldText.length < newText.length ? oldText : newText;
+    const line = (shorter.match(/\n/g) || []).length;
+    const lastNewline = shorter.lastIndexOf('\n');
+    const character = lastNewline === -1 ? shorter.length : shorter.length - lastNewline - 1;
+    return Position.create(line, character);
+  }
+  
+  return null; // Strings are identical
+}
+
+documents.onDidChangeContent(async (event) => {
+  const uri = event.document.uri;
+  connection.console.info(`Document changed: ${uri}`);
+  
+  // Get current document content
+  const currentContent = event.document.getText();
+  
+  // Parse statements from the document
+  const statements = await runJsonParserFromString(uri, currentContent);
+  
+  if (statements.length === 0) {
+    connection.console.info(`No statements found in ${uri}`);
+    // Clear diagnostics if no statements
+    connection.sendDiagnostics({ uri, diagnostics: [] });
+    previousDocumentContent.set(uri, currentContent);
+    return;
+  }
+  
+  // Determine which statement was edited by comparing with previous content
+  let minStatementIndex: number | undefined = undefined;
+  
+  const previousContent = previousDocumentContent.get(uri);
+  if (previousContent !== undefined && previousContent !== currentContent) {
+    // Find where the change occurred
+    const changePosition = findFirstDifference(previousContent, currentContent);
+    
+    if (changePosition) {
+      // Estimate text length of the change (rough approximation)
+      const textLength = Math.abs(currentContent.length - previousContent.length);
+      minStatementIndex = findStatementAtPosition(statements, changePosition, textLength);
+      connection.console.info(`Edit detected at position (${changePosition.line}, ${changePosition.character}), affecting statement ${minStatementIndex}`);
+    } else {
+      // Couldn't determine change position, recheck all
+      connection.console.info(`Could not determine change position, rechecking all statements`);
+      minStatementIndex = undefined;
+    }
+  } else {
+    // First time seeing this document or no previous content: recheck all statements
+    connection.console.info(`First change or no previous content, rechecking all statements`);
+    minStatementIndex = undefined;
+  }
+  
+  // Store current content for next comparison
+  previousDocumentContent.set(uri, currentContent);
+  
+  // Run parallel checks, preserving processes for statements before the edited one
+  const fsPath = fileURLToPath(uri);
+  runParallelChecks(uri, statements, fsPath, minStatementIndex);
 });
 
 // ----- Start listening -----

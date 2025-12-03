@@ -11,6 +11,14 @@ let rec g (x : int) : { int | h } =
 let rec f (x : int) : t () =
   x
 
+let z : int = 3
+
+let x : int = 1
+
+let y : int = 2
+
+let x : int = 1
+
 let t = sig
   val t : type
   val a : type
