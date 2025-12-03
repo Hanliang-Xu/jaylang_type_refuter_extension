@@ -32,8 +32,6 @@ val bjy_to_many_emb : Lang.Ast.Bluejay.pgm -> do_wrap:bool -> do_type_splay:Spla
 (** [bjy_to_many_emb bjy do_wrap do_type_splay check_index] embeds the Bluejay program into many embedded programs.
     If [check_index] is provided, only that check is enabled. *)
 
-val bjy_to_many_emb_split_first : Lang.Ast.Bluejay.pgm -> do_wrap:bool -> do_type_splay:Splay.t -> check_index:int option -> Lang.Ast.Embedded.pgm Preface.Nonempty_list.t
-
 val des_to_many_emb : Lang.Ast.Desugared.pgm -> do_wrap:bool -> do_type_splay:Splay.t -> check_index:int option -> Lang.Ast.Embedded.pgm Preface.Nonempty_list.t
 (** [des_to_many_emb des do_wrap do_type_splay check_index] embeds the desugared program into many embedded programs.
     If [check_index] is provided, only that check is enabled. *)

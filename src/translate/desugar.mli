@@ -17,9 +17,6 @@ val desugar_pgm : (module Translation_tools.Fresh_names.S) -> Lang.Ast.Bluejay.p
     is raised because type splaying comes with stubbing recursive types, which is unsound
     if the type is nondeterministic. *)
 
-val split_checks_before_desugar : (module Translation_tools.Fresh_names.S) -> Lang.Ast.Bluejay.pgm ->
-  do_type_splay:Splay.t -> check_index:int option -> Lang.Ast.Desugared.pgm
-
 val filter_checks_to_index_before_desugar : (module Translation_tools.Fresh_names.S) -> Lang.Ast.Bluejay.pgm ->
   do_type_splay:Splay.t -> check_index:int option -> Lang.Ast.Desugared.pgm
 (** [filter_checks_to_index_before_desugar] filters checks so that only the check at the given index is enabled.

@@ -79,11 +79,6 @@ let bjy_to_many_emb (bjy : Bluejay.pgm) ~(do_wrap : bool) ~(do_type_splay : Spla
   |> bjy_to_des ~do_type_splay
   |> des_to_many_emb ~do_wrap ~do_type_splay ~check_index
 
-let bjy_to_many_emb_split_first (bjy : Bluejay.pgm) ~(do_wrap : bool) ~(do_type_splay : Splay.t) ~(check_index : int option) : Embedded.pgm Preface.Nonempty_list.t =
-  let module Names = Translation_tools.Fresh_names.Make () in
-  let des_pgm = Desugar.split_checks_before_desugar (module Names) bjy ~do_type_splay ~check_index in
-  Preface.Nonempty_list.Last (Embed.embed_pgm (module Names) des_pgm ~do_wrap ~do_type_splay)
-
 let bjy_to_erased (bjy : Bluejay.pgm) : Type_erased.pgm =
   Type_erasure.erase bjy
 
