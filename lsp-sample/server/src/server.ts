@@ -45,6 +45,7 @@ connection.onInitialized(async () => {
 interface StatementValidity {
   statementIndex: number;
   status: 'pending' | 'running' | 'valid' | 'invalid' | 'error' | 'timeout' | 'pruned';
+  message?: string;
   lastUpdated: number; // timestamp in milliseconds
 }
 
@@ -60,38 +61,55 @@ const previousDocumentContent = new Map<string, string>();
 // ----- Helper: Cancel running processes for a document -----
 // If minStatementIndex is provided, only cancels processes for statements >= minStatementIndex
 // Otherwise, cancels all processes for the document
-function cancelRunningProcesses(uri: string, minStatementIndex: number): void {
+function cancelRunningProcesses(uri: string, minStatementIndex?: number): void {
   const processes = runningProcesses.get(uri);
   if (!processes) {
     return; // No processes running for this document
   }
 
-  // Cancel only processes for statements >= minStatementIndex
-  let cancelledCount = 0;
-  processes.forEach((process, statementIndex) => {
-    if (statementIndex >= minStatementIndex) {
+  if (minStatementIndex === undefined) {
+    // Cancel all processes
+    connection.console.info(`Cancelling ${processes.size} running processes for ${uri}`);
+    
+    processes.forEach((process, statementIndex) => {
       try {
         process.kill('SIGTERM');
-        connection.console.info(`Killed process for statement ${statementIndex} (>= ${minStatementIndex})`);
-        cancelledCount++;
+        connection.console.info(`Killed process for statement ${statementIndex}`);
       } catch (err) {
         connection.console.error(`Error killing process for statement ${statementIndex}: ${err}`);
       }
-    }
-  });
+    });
 
-  // Remove cancelled processes from the map
-  processes.forEach((process, statementIndex) => {
-    if (statementIndex >= minStatementIndex) {
-      processes.delete(statementIndex);
-    }
-  });
-
-  connection.console.info(`Cancelled ${cancelledCount} processes for statements >= ${minStatementIndex} in ${uri}`);
-  
-  // If no processes remain, clean up the map
-  if (processes.size === 0) {
+    // Clear the processes map for this document
     runningProcesses.delete(uri);
+  } else {
+    // Cancel only processes for statements >= minStatementIndex
+    let cancelledCount = 0;
+    processes.forEach((process, statementIndex) => {
+      if (statementIndex >= minStatementIndex) {
+        try {
+          process.kill('SIGTERM');
+          connection.console.info(`Killed process for statement ${statementIndex} (>= ${minStatementIndex})`);
+          cancelledCount++;
+        } catch (err) {
+          connection.console.error(`Error killing process for statement ${statementIndex}: ${err}`);
+        }
+      }
+    });
+
+    // Remove cancelled processes from the map
+    processes.forEach((process, statementIndex) => {
+      if (statementIndex >= minStatementIndex) {
+        processes.delete(statementIndex);
+      }
+    });
+
+    connection.console.info(`Cancelled ${cancelledCount} processes for statements >= ${minStatementIndex} in ${uri}`);
+    
+    // If no processes remain, clean up the map
+    if (processes.size === 0) {
+      runningProcesses.delete(uri);
+    }
   }
 }
 
@@ -127,16 +145,18 @@ function generateDiagnostics(
 
     switch (validity.status) {
       case 'valid':
+        // Optionally hide valid checks too - uncomment to show only errors/warnings
+        // continue;
         severity = DiagnosticSeverity.Information;
-        message = `Statement ${statement.index} is valid`;
+        message = `Statement ${statement.index} is valid${validity.message ? ': ' + validity.message : ''}`;
         break;
       case 'invalid':
         severity = DiagnosticSeverity.Error;
-        message = `Statement ${statement.index} is invalid`;
+        message = `Statement ${statement.index} is invalid${validity.message ? ': ' + validity.message : ''}`;
         break;
       case 'error':
         severity = DiagnosticSeverity.Error;
-        message = `Error checking statement ${statement.index}`;
+        message = `Error checking statement ${statement.index}${validity.message ? ': ' + validity.message : ''}`;
         break;
       case 'timeout':
         severity = DiagnosticSeverity.Warning;
@@ -144,12 +164,14 @@ function generateDiagnostics(
         break;
       case 'pruned':
         severity = DiagnosticSeverity.Warning;
-        message = `Statement ${statement.index} check pruned`;
+        message = `Statement ${statement.index} check pruned${validity.message ? ': ' + validity.message : ''}`;
         break;
       case 'pending':
-        continue;
+        severity = DiagnosticSeverity.Information;
+        message = `Statement ${statement.index} check incomplete${validity.message ? ': ' + validity.message : ''}`;
+        break;
       default:
-        severity = DiagnosticSeverity.Warning;
+        severity = DiagnosticSeverity.Information;
         message = `Unknown status for statement ${statement.index}`;
     }
 
@@ -205,6 +227,7 @@ function execFilePromise(
 // Returns the raw status string from output for two-phase checking
 function parseCevalOutputRaw(stdout: string, stderr: string, exitCode: number | null): {
   statusString: string;
+  message?: string;
 } {
   const output = (stdout || '') + (stderr || '');
   const outputUpper = output.toUpperCase();
@@ -213,49 +236,60 @@ function parseCevalOutputRaw(stdout: string, stderr: string, exitCode: number | 
   if (exitCode !== null && exitCode !== 0) {
     return {
       statusString: 'ERROR',
+      message: `Process exited with code ${exitCode}: ${output.trim()}`,
     };
   }
 
   // Parse status from output (ceval uses to_loud_string which uppercases and replaces spaces with underscores)
   if (outputUpper.includes('FOUND_ABORT')) {
+    const match = output.match(/Found abort:\s*\n\s*(.+)/i);
     return {
       statusString: 'FOUND_ABORT',
+      message: match ? match[1].trim() : 'Abort found',
     };
   }
 
   if (outputUpper.includes('TYPE_MISMATCH')) {
+    const match = output.match(/Type mismatch:\s*\n\s*(.+)/i);
     return {
       statusString: 'TYPE_MISMATCH',
+      message: match ? match[1].trim() : 'Type mismatch found',
     };
   }
 
   if (outputUpper.includes('UNBOUND_VARIABLE')) {
+    const match = output.match(/Unbound variable:\s*\n\s*(.+)/i);
     return {
       statusString: 'UNBOUND_VARIABLE',
+      message: match ? match[1].trim() : 'Unbound variable found',
     };
   }
 
   if (outputUpper.includes('TIMEOUT')) {
     return {
       statusString: 'TIMEOUT',
+      message: 'Check timed out',
     };
   }
 
   if (outputUpper.includes('EXHAUSTED_PRUNED_TREE')) {
     return {
       statusString: 'EXHAUSTED_PRUNED_TREE',
+      message: 'Search space pruned, no definitive answer',
     };
   }
 
   if (outputUpper.includes('EXHAUSTED')) {
     return {
       statusString: 'EXHAUSTED',
+      message: 'No errors found',
     };
   }
 
   if (outputUpper.includes('UNKNOWN_DUE_TO_SOLVER_TIMEOUT')) {
     return {
       statusString: 'UNKNOWN_DUE_TO_SOLVER_TIMEOUT',
+      message: 'Solver timeout',
     };
   }
 
@@ -263,36 +297,39 @@ function parseCevalOutputRaw(stdout: string, stderr: string, exitCode: number | 
   if (exitCode === 0) {
     return {
       statusString: 'UNFINISHED',
+      message: output.trim() || 'Check completed but no definitive result',
     };
   }
 
   // Unknown output format
   return {
     statusString: 'ERROR',
+    message: `Unexpected output: ${output.trim()}`,
   };
 }
 
 // Convert raw status string to StatementValidity status after two-phase check
-function convertStatusToValidity(statusString: string): {
+function convertStatusToValidity(statusString: string, message?: string): {
   status: StatementValidity['status'];
+  message?: string;
 } {
   switch (statusString) {
     case 'EXHAUSTED':
-      return { status: 'valid' };
+      return { status: 'valid', message: message || 'No errors found' };
     case 'EXHAUSTED_PRUNED_TREE':
-      return { status: 'pruned' };
+      return { status: 'pruned', message: message || 'Search space pruned, no definitive answer' };
     case 'UNFINISHED':
-      return { status: 'pending' };
+      return { status: 'pending', message: message || 'No definitive answer yet' };
     case 'FOUND_ABORT':
     case 'TYPE_MISMATCH':
     case 'UNBOUND_VARIABLE':
-      return { status: 'invalid' };
+      return { status: 'invalid', message: message || 'Provably unsafe' };
     case 'TIMEOUT':
-      return { status: 'timeout' };
+      return { status: 'timeout', message: message || 'Check timed out' };
     case 'UNKNOWN_DUE_TO_SOLVER_TIMEOUT':
     case 'ERROR':
     default:
-      return { status: 'error' };
+      return { status: 'error', message: message || 'Error during check' };
   }
 }
 
@@ -332,7 +369,7 @@ async function runParallelChecks(uri: string, statements: StatementInfo[], fsPat
     cancelRunningProcesses(uri, minStatementIndex);
     connection.console.info(`Starting checks for ${statementsToCheck.length} statements (>= ${minStatementIndex})`);
   } else {
-    cancelRunningProcesses(uri, 0);
+    cancelRunningProcesses(uri);
     connection.console.info(`Starting parallel checks for ${statements.length} statements`);
   }
 
@@ -386,10 +423,12 @@ async function runParallelChecks(uri: string, statements: StatementInfo[], fsPat
       connection.console.info(`Check ${statementIndex} phase 1 result: ${parsedPhase1.statusString}`);
 
       let finalStatus: StatementValidity['status'];
+      let finalMessage: string | undefined;
 
       // If EXHAUSTED in phase 1, statement is safe (valid)
       if (parsedPhase1.statusString === 'EXHAUSTED') {
         finalStatus = 'valid';
+        finalMessage = 'No errors found (sound check)';
         connection.console.info(`Check ${statementIndex} completed: valid (EXHAUSTED in phase 1)`);
       } else {
         // Phase 2: Run without -s flag for complete checking
@@ -409,16 +448,20 @@ async function runParallelChecks(uri: string, statements: StatementInfo[], fsPat
         connection.console.info(`Check ${statementIndex} phase 2 result: ${parsedPhase2.statusString}`);
 
         // Convert phase 2 result to validity status
-        const converted = convertStatusToValidity(parsedPhase2.statusString);
+        const converted = convertStatusToValidity(parsedPhase2.statusString, parsedPhase2.message);
         finalStatus = converted.status;
+        finalMessage = converted.message;
 
-        connection.console.info(`Check ${statementIndex} completed: ${finalStatus}`);
+        connection.console.info(
+          `Check ${statementIndex} completed: ${finalStatus}${finalMessage ? ' - ' + finalMessage : ''}`
+        );
       }
 
       // Update state with final result
       state.set(statementIndex, {
         statementIndex,
         status: finalStatus,
+        message: finalMessage,
         lastUpdated: Date.now(),
       });
 
@@ -434,6 +477,7 @@ async function runParallelChecks(uri: string, statements: StatementInfo[], fsPat
       state.set(statementIndex, {
         statementIndex,
         status: 'error',
+        message: error instanceof Error ? error.message : String(error),
         lastUpdated: Date.now(),
       });
 
@@ -678,7 +722,7 @@ documents.onDidClose((event) => {
   const uri = event.document.uri;
   connection.console.info(`Document closed: ${uri}`);
   // Cancel any running processes and clean up state
-  cancelRunningProcesses(uri, 0);
+  cancelRunningProcesses(uri);
   documentState.delete(uri);
   previousDocumentContent.delete(uri);
   // Clear diagnostics
