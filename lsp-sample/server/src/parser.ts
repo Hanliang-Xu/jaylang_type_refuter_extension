@@ -3,13 +3,16 @@ import { fileURLToPath } from 'url';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import {
+  Position,
+} from 'vscode-languageserver/node';
 
 export interface StatementInfo {
   index: number;
   kind: string;
   ids: string[];
-  start: { line: number; col: number; offset: number };
-  end: { line: number; col: number; offset: number };
+  start: Position;
+  end: Position;
 }
 
 export function runJsonParser(fileUri: string, workspaceRoot?: string): Promise<StatementInfo[]> {

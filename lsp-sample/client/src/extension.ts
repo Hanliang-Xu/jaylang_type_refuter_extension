@@ -43,27 +43,26 @@ export function activate(context: ExtensionContext) {
 			didChange: (change, next) => {
 				const res = next(change);
 
-				// change is DidChangeTextDocumentParams (protocol), but be safe and normalize.
+				// change is DidChangeTextDocumentParams (protocol)
 				const norm = change.contentChanges.map((c: any) => {
-				if (c.range && c.range.start && c.range.end) {
-					return {
-					range: {
-						start: { line: Number(c.range.start.line), character: Number(c.range.start.character) },
-						end:   { line: Number(c.range.end.line),   character: Number(c.range.end.character) },
-					},
-					rangeLength: typeof c.rangeLength === 'number' ? c.rangeLength : undefined,
-					text: String(c.text ?? ''),
-					};
-				}
-				return { text: String(c.text ?? '') }; // full replace form
+					if (c.range && c.range.start && c.range.end) {
+						return {
+							range: {
+								start: { line: Number(c.range.start.line), character: Number(c.range.start.character) },
+								end:   { line: Number(c.range.end.line),   character: Number(c.range.end.character) },
+							},
+							text: String(c.text ?? ''),
+						};
+					}
+					console.log("Ignoring full document change");
+					return null;
 				});
 
 				try {
-				client?.sendNotification('bluejay/rangeChanges', {
-					uri: change.document?.uri?.toString() || '',
-					version: change.document?.version ?? 0,
-					contentChanges: norm,
-				});
+					client?.sendNotification('bluejay/rangeChanges', {
+						uri: change.document?.uri?.toString() || '',
+						contentChanges: norm,
+					});
 				} catch {}
 
 				return res;
