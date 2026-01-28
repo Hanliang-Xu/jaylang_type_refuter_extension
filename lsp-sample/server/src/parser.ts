@@ -3,37 +3,35 @@ import { fileURLToPath } from 'url';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import {
-  Position,
-} from 'vscode-languageserver/node';
+
+export interface ParserPosition {
+  line: number;
+  col: number;
+  offset: number;
+}
 
 export interface StatementInfo {
   index: number;
   kind: string;
   ids: string[];
-  start: Position;
-  end: Position;
+  start: ParserPosition;
+  end: ParserPosition;
 }
 
 export function runJsonParser(fileUri: string, workspaceRoot?: string): Promise<StatementInfo[]> {
   const fsPath = fileURLToPath(fileUri);
   const jsonParserPath = './json_parser.exe';
-  console.log('Running json_parser on:', fsPath);
-  console.log('Working directory:', workspaceRoot);
 
   return new Promise((resolve, reject) => {
     execFile(jsonParserPath, [fsPath], { cwd: workspaceRoot }, (err, stdout, stderr) => {
       if (err) {
-        // Silently ignore all parser errors
         resolve([]);
         return;
       }
       try {
-        console.log('JSON output:', stdout);
         const statements: StatementInfo[] = JSON.parse(stdout);
         resolve(statements);
       } catch (parseErr) {
-        //reject(new Error(`Failed to parse JSON: ${parseErr}`));
         resolve([]);
       }
     });

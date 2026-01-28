@@ -10,7 +10,7 @@ import {
 	LanguageClient,
 	LanguageClientOptions,
 	ServerOptions,
-	TransportKind
+	TransportKind,
 } from 'vscode-languageclient/node';
 
 let client: LanguageClient;
@@ -43,8 +43,8 @@ export function activate(context: ExtensionContext) {
 			didChange: (change, next) => {
 				const res = next(change);
 
-				// change is DidChangeTextDocumentParams (protocol)
-				const norm = change.contentChanges.map((c: any) => {
+				// TODO: should specify the type of c to make this more robust
+				const norm = change.contentChanges.map((c) => {
 					if (c.range && c.range.start && c.range.end) {
 						return {
 							range: {
@@ -63,7 +63,9 @@ export function activate(context: ExtensionContext) {
 						uri: change.document?.uri?.toString() || '',
 						contentChanges: norm,
 					});
-				} catch {}
+				} catch (error) {
+					console.error('Failed to send bluejay/rangeChanges notification:', error);
+				}
 
 				return res;
 			}

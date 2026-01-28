@@ -3,7 +3,7 @@ import {
   Position,
 } from 'vscode-languageserver/node';
 
-import { StatementInfo } from './parser';
+import { ParserPosition, StatementInfo } from './parser';
 
 // Types
 export interface ChangeWithRange { range: Range; text: string }
@@ -41,15 +41,6 @@ export function processRangeChange(change: ChangeWithRange, uri: string): Proces
 export function matchChangeToStatements(change: ProcessedChange, statements: StatementInfo[]): MatchedChange | null {
   const affectedStatementIndex = findStatementAtPosition(statements, change.newRange);
   
-  // Ensure the index is within bounds
-  if (affectedStatementIndex < 0 || affectedStatementIndex >= statements.length) {
-    return {
-      change,
-      affectedStatementIndex: 0,
-      statement: statements[0]
-    };
-  }
-  
   return {
     change,
     affectedStatementIndex,
@@ -59,11 +50,12 @@ export function matchChangeToStatements(change: ProcessedChange, statements: Sta
 
 export function findStatementAtPosition(statements: StatementInfo[], newRange: Range): number {
   for (let i = 0; i < statements.length; i++) {
-    const stmt_end : Position = statements[i].end;
+    
+    const stmt_end : ParserPosition = statements[i].end;
     const change_end : Position = newRange.end;
 
     if ((stmt_end.line - 1) > change_end.line || 
-        ((stmt_end.line - 1) === change_end.line && stmt_end.character >= change_end.character)) {
+        ((stmt_end.line - 1) === change_end.line && stmt_end.col >= change_end.character)) {
       return i;
     }
   }
