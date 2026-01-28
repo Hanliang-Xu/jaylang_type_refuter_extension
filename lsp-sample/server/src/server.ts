@@ -4,16 +4,14 @@ import {
   TextDocuments,
   TextDocumentSyncKind,
   InitializeResult,
-  Diagnostic,
-  DiagnosticSeverity,
-  Range,
-  Position,
 } from 'vscode-languageserver/node';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 
 import { execFile } from 'child_process';
 import { fileURLToPath } from 'url';
-import { runJsonParserFromString, StatementInfo } from './parser';
+import { runJsonParserFromString } from './parser';
+import { createDiagnostics } from './diagnostics';
+import { ChangeWithRange, processRangeChange, matchChangeToStatements } from './changeAnalyzer'
 
 // ----- LSP wiring -----
 const connection = createConnection(ProposedFeatures.all);
@@ -21,7 +19,7 @@ const documents = new TextDocuments(TextDocument);
 
 // ----- Capabilities -----
 connection.onInitialize((_params): InitializeResult => {
-  connection.console.info('bluejay-lsp init: change=Incremental');
+  connection.console.info('bluejay-lsp init');
   return {
     capabilities: {
       textDocumentSync: {
@@ -56,132 +54,6 @@ function runCeval(uri: string): Promise<void> {
       resolve();
     });
   });
-}
-
-
-// ----- Diagnostics -----
-function createDiagnostics(statement: StatementInfo): Diagnostic {
-  const startPos = Position.create(statement.start.line - 1, statement.start.col);
-  const endPos = Position.create(statement.end.line - 1, statement.end.col);
-
-  return {
-    range: Range.create(startPos, endPos),
-    severity: DiagnosticSeverity.Information,
-    message: `Statement: ${statement.kind} (${statement.ids.join(', ')})`,
-    source: 'bluejay-lsp',
-  };
-}
-
-// ----- Receive exact edit ranges from client middleware -----
-interface ChangeWithRange { range?: Range; rangeLength?: number; text: string }
-
-interface ProcessedChange {
-  type: 'range' | 'full';
-  uri: string;
-  version: number;
-  text: string;
-  textLength: number;
-  originalRange?: { start: Position; end: Position };
-  newRange?: { start: Position; end: Position };
-}
-
-interface MatchedChange {
-  change: ProcessedChange;
-  affectedStatementIndex: number;
-  statement: StatementInfo;
-}
-
-function processRangeChange(change: ChangeWithRange, uri: string, version: number): ProcessedChange {
-  const baseChange = {
-    uri,
-    version,
-    text: change.text,
-    textLength: change.text.length
-  };
-
-  if (change.range) {
-    // Range change: calculate new end position
-    const { start, end } = change.range;
-    const nl = (change.text.match(/\n/g)?.length ?? 0);
-    const lastLineLen = change.text.length - (change.text.lastIndexOf('\n') + 1);
-    const postEnd = nl === 0
-      ? { line: start.line, character: start.character + lastLineLen }
-      : { line: start.line + nl, character: lastLineLen };
-
-    return {
-      ...baseChange,
-      type: 'range' as const,
-      originalRange: { start, end },
-      newRange: { start, end: postEnd }
-    };
-  } else {
-    // Full change: no range information
-    return {
-      ...baseChange,
-      type: 'full' as const
-    };
-  }
-}
-
-function matchChangeToStatements(change: ProcessedChange, statements: StatementInfo[]): MatchedChange | null {
-  // Handle empty statements array
-  if (statements.length === 0) {
-    connection.console.info('No statements found, cannot match change');
-    return null;
-  }
-
-  if (change.type === 'full') {
-    // Full changes affect all statements
-    return {
-      change,
-      affectedStatementIndex: 0,
-      statement: statements[0]
-    };
-  }
-
-  const matchPosition = change.newRange!.start;
-
-  // Find the statement that contains or is after this position
-  const affectedStatementIndex = findStatementAtPosition(statements, matchPosition, change.textLength);
-  
-  connection.console.info(`matched change to statement ${affectedStatementIndex}`);
-  
-  // Ensure the index is within bounds
-  if (affectedStatementIndex < 0 || affectedStatementIndex >= statements.length) {
-    connection.console.info(`Invalid statement index ${affectedStatementIndex}, using first statement`);
-    return {
-      change,
-      affectedStatementIndex: 0,
-      statement: statements[0]
-    };
-  }
-  
-  return {
-    change,
-    affectedStatementIndex,
-    statement: statements[affectedStatementIndex]
-  };
-}
-
-function findStatementAtPosition(statements: StatementInfo[], position: Position, text_length: number): number {
-  // Find the first statement that starts at or after the given position
-  for (let i = 0; i < statements.length; i++) {
-    const stmt = statements[i];
-
-    connection.console.info(
-      `Checking stmt[${i}] end=(${stmt.end.line}, ${stmt.end.col}) vs position=(${position.line}, ${position.character})`
-    );
-
-    if ((stmt.end.line - 1) > position.line || 
-        ((stmt.end.line - 1) === position.line && stmt.end.col >= (position.character + text_length))) {
-      connection.console.info(`found statement at index ${i}`);
-      connection.console.info(`statement: ${stmt.kind} (${stmt.ids.join(', ')})`);
-      return i;
-    }
-  }
-  
-  // If no statement found, return the last one
-  return statements.length - 1;
 }
 
 connection.onNotification('bluejay/rangeChanges', async (payload: {
